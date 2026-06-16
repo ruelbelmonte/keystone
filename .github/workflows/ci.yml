@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Restore
+        working-directory: content
+        run: dotnet restore
+      - name: Format check
+        working-directory: content
+        run: dotnet format --verify-no-changes
+      - name: Build
+        working-directory: content
+        run: dotnet build -c Release --no-restore
+      - name: Test
+        working-directory: content
+        run: dotnet test -c Release --no-build
+      - name: Pack template
+        run: dotnet pack Keystone.TemplatePack.csproj -c Release -o ./artifacts
