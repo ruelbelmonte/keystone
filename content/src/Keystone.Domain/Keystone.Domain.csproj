@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Domain layer depends on nothing. That constraint is enforced by an
+       architecture test, not just convention. -->
+</Project>
