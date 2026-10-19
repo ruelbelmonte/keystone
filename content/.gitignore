@@ -1,0 +1,12 @@
+bin/
+obj/
+artifacts/
+[Dd]ebug/
+[Rr]elease/
+*.user
+.vs/
+.idea/
+TestResults/
+*.db
+*.db-shm
+*.db-wal

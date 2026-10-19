@@ -1,65 +1,103 @@
-using Keystone.Api;
-using Keystone.Application;
-using Keystone.Application.Customers.Commands.RegisterCustomer;
-using Keystone.Application.Customers.Queries.GetCustomer;
-using Keystone.Infrastructure;
-using Keystone.Infrastructure.Persistence;
-using MediatR;
-using OpenTelemetry;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using FluentValidation;
+using Keystone.Api.Common;
+using Keystone.Api.Customers.Endpoints;
+using Keystone.Api.Customers.Repositories;
+using Keystone.Api.Customers.Services;
+using Keystone.Api.Customers.Services.Interface;
+using Keystone.Api.Customers.Validators;
+using Keystone.Api.Infrastructure.Data;
+using Keystone.Contracts.Customers;
+using Microsoft.AspNetCore.Authorization;
+using Serilog;
+using SerilogTracing;
 
-var builder = WebApplication.CreateBuilder(args);
+// Startup logger until UseSerilog replaces it. Not CreateBootstrapLogger: a ReloadableLogger freezes once
+// per process, so parallel WebApplicationFactory hosts would throw "The logger is already frozen".
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateLogger();
 
-builder.Services.AddApplication();
-builder.Services.AddInfrastructure(
-    builder.Configuration.GetConnectionString("Default") ?? "Data Source=keystone.db");
+using var tracing = new ActivityListenerConfiguration()
+    .Instrument.AspNetCoreRequests()
+    .TraceToSharedLogger();
 
-builder.Services.AddHealthChecks();
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
-
-var otel = builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource.AddService("Keystone.Api"))
-    .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation())
-    .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation());
-
-// Export only when a collector is configured, so local runs stay quiet.
-if (!string.IsNullOrEmpty(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+try
 {
-    otel.UseOtlpExporter();
+    var builder = WebApplication.CreateBuilder(args);
+
+    builder.Host.UseSerilog((context, services, logger) => logger
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services));
+
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+    builder.Services.AddOpenApi();
+    builder.Services.AddEndpointsApiExplorer();
+
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    builder.Services.AddProblemDetails();
+    builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+
+    ValidatorOptions.Global.DefaultClassLevelCascadeMode = CascadeMode.Stop;
+
+    RegisterDependencies(builder.Services);
+
+    var app = builder.Build();
+
+    app.UseExceptionHandler();
+    app.UseSerilogRequestLogging();
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapOpenApi().AllowAnonymous();
+    }
+
+    app.MapHealthChecks("/health").AllowAnonymous();
+
+    app.MapVersionEndpoints()
+        .MapGroup("v1")
+        .MapCustomerEndpoints();
+
+    await app.RunAsync();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    Log.Fatal(ex, "Host terminated unexpectedly");
+    throw;
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
 }
 
-var app = builder.Build();
-
-app.UseExceptionHandler();
-app.MapHealthChecks("/health");
-
-var customers = app.MapGroup("/customers");
-
-customers.MapPost("/", async (RegisterCustomerCommand command, ISender sender, CancellationToken cancellationToken) =>
+static void RegisterDependencies(IServiceCollection services)
 {
-    var result = await sender.Send(command, cancellationToken);
-    return result.IsSuccess
-        ? Results.Created($"/customers/{result.Value}", new { id = result.Value })
-        : result.ToProblem();
-});
+    services.AddSingleton(TimeProvider.System);
 
-customers.MapGet("/{id:guid}", async (Guid id, ISender sender, CancellationToken cancellationToken) =>
-{
-    var result = await sender.Send(new GetCustomerQuery(id), cancellationToken);
-    return result.IsSuccess ? Results.Ok(result.Value) : result.ToProblem();
-});
+    services.AddTransient<IValidator<RegisterCustomerRequest>, RegisterCustomerRequestValidator>();
 
-// Development convenience: create the schema on startup. Use migrations in production.
-using (var scope = app.Services.CreateScope())
-{
-    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    await context.Database.EnsureCreatedAsync();
+    services.AddSingleton<ICustomerRepository, CustomerRepository>();
+    services.AddSingleton<ICustomerService, CustomerService>();
+
+    services.AddPostgres();
+
+    // MapInboundClaims=false keeps "sub" and "scope" as issued instead of renaming them.
+    services.AddAuthentication().AddJwtBearer(options => options.MapInboundClaims = false);
+    // The fallback policy is secure by default: a route without RequireAuthorization still needs a signed-in caller.
+    services.AddAuthorizationBuilder()
+        .AddRolePolicies()
+        .SetFallbackPolicy(new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .Build());
 }
 
-await app.RunAsync();
-
-// Exposed so the test project can drive the app with WebApplicationFactory.
+// Exposed so the test project can host the API with WebApplicationFactory.
 public partial class Program;

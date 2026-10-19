@@ -1,9 +1,9 @@
 {
   "$schema": "http://json.schemastore.org/template",
   "author": "Ruel Belmonte",
-  "classifications": ["Web", "Clean Architecture", "DDD", "CQRS", "Solution"],
-  "identity": "Keystone.CleanArchitecture.Solution",
-  "name": "Keystone Clean Architecture Solution (DDD + CQRS)",
+  "classifications": ["Web", "WebAPI", "Minimal API", "Solution"],
+  "identity": "Keystone.WebApi.Solution",
+  "name": "Keystone Web API Solution (layered minimal API)",
   "shortName": "keystone",
   "sourceName": "Keystone",
   "preferNameDirectory": true,
