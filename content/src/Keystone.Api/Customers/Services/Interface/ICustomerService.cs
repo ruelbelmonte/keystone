@@ -6,7 +6,7 @@ namespace Keystone.Api.Customers.Services.Interface;
 
 public interface ICustomerService
 {
-    Task<ServiceResult<CustomerResponse>> GetCustomer(Guid id, CancellationToken cancellationToken);
+    Task<ServiceResult<CustomerResponse>> GetCustomer(Guid id, ClaimsPrincipal user, CancellationToken cancellationToken);
 
     Task<ServiceResult<CustomerResponse>> RegisterCustomer(
         RegisterCustomerRequest request,

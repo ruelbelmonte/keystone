@@ -13,13 +13,22 @@ public sealed class CustomerService(
     TimeProvider timeProvider,
     ILogger<CustomerService> logger) : ICustomerService
 {
-    public async Task<ServiceResult<CustomerResponse>> GetCustomer(Guid id, CancellationToken cancellationToken)
+    public async Task<ServiceResult<CustomerResponse>> GetCustomer(Guid id, ClaimsPrincipal user, CancellationToken cancellationToken)
     {
         var customer = await repository.GetCustomerById(id, cancellationToken);
+        if (customer is null)
+        {
+            return new ServiceResult<CustomerResponse>(ApiErrors.Customers.NotFound(id));
+        }
 
-        return customer is null
-            ? new ServiceResult<CustomerResponse>(ApiErrors.Customers.NotFound(id))
-            : new ServiceResult<CustomerResponse>(customer.ToCustomerResponse());
+        // Every read of personal data is audited: who, which record. Never the data itself.
+        logger.LogInformation(
+            "Audit: customer {CustomerId} read by {Subject} (client {ClientId})",
+            customer.Id,
+            user.FindFirstValue("sub"),
+            user.FindFirstValue("client_id"));
+
+        return new ServiceResult<CustomerResponse>(customer.ToCustomerResponse());
     }
 
     public async Task<ServiceResult<CustomerResponse>> RegisterCustomer(
@@ -48,9 +57,10 @@ public sealed class CustomerService(
 
         // Ids only: names and emails are personal data and stay out of logs.
         logger.LogInformation(
-            "Customer {CustomerId} registered by {Subject}",
+            "Audit: customer {CustomerId} registered by {Subject} (client {ClientId})",
             customer.Id,
-            user.FindFirstValue("sub"));
+            user.FindFirstValue("sub"),
+            user.FindFirstValue("client_id"));
 
         return new ServiceResult<CustomerResponse>(customer.ToCustomerResponse());
     }

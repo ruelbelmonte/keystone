@@ -35,15 +35,17 @@ public static class CustomerEndpoints
         /// <summary>Gets a customer by id.</summary>
         /// <remarks>Requires the Readers policy.</remarks>
         /// <param name="id">The customer id.</param>
+        /// <param name="user">The caller, recorded in the audit log.</param>
         /// <param name="service">The customer service.</param>
         /// <param name="cancellationToken">Cancelled when the client disconnects.</param>
         /// <returns>200 with the customer, or 404 when no customer has that id.</returns>
         public static async Task<IResult> GetCustomer(
             Guid id,
+            ClaimsPrincipal user,
             ICustomerService service,
             CancellationToken cancellationToken)
         {
-            var result = await service.GetCustomer(id, cancellationToken);
+            var result = await service.GetCustomer(id, user, cancellationToken);
 
             return result.IsSuccessful
                 ? Results.Ok(result.Data)

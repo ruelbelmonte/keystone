@@ -85,6 +85,8 @@ xunit v3, AutoFixture `[InlineAutoData]` and AwesomeAssertions.
 - Every route requires an authenticated caller unless it opts out.
 - The `Readers` and `Writers` policies check the token's `scope` claim.
 - Logs carry ids, never names, emails, request bodies or query strings.
+- Every read and write of a customer is audited with the caller's `sub` and
+  `client_id`.
 - Error responses never include exception messages.
 
 These are defaults, not compliance. See [ADR 10](./docs/adr/0010-secure-defaults.md)
@@ -108,6 +110,8 @@ Customer endpoints need a JWT from the authority configured under
 ## Not included yet
 
 - **A migration runner.** Schema scripts in `db/` are applied by hand.
+- **A separate audit sink.** Audit events share the operational log pipeline.
+  Route `Audit:` events to a tamper-evident store.
 - **A cache.** For read-heavy paths, add a cache-aside base class with
   `SemaphoreSlim` stampede protection, plus a central cache-key helper.
 - **Integration tests against a real Postgres.** System tests substitute the

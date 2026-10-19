@@ -22,6 +22,9 @@ safe.
 - **No personal data in logs.** Request logging records the method, the path and
   the status, never bodies or query strings. Services log ids, not names or
   emails.
+- **Reads and writes of personal data are audited.** Services log an
+  `Audit:` event with the record id, the caller's `sub` and `client_id`, and the
+  trace id (from SerilogTracing), never the data itself.
 - **No internals in errors.** Exception messages are never returned. A 500
   carries only a trace id for correlation.
 
@@ -29,5 +32,8 @@ safe.
 
 The template is closed by default and has to be opened deliberately. These
 defaults do not amount to compliance with HIPAA, the NZ Health Information
-Privacy Code, or anything else. Encryption at rest, audit trails, retention and
-access reviews are still each project's responsibility.
+Privacy Code, or anything else. Encryption at rest, retention and access
+reviews are still each project's responsibility. So is the audit sink: audit events go to the same Serilog
+pipeline as operational logs, and a real system should route them to a
+separate, tamper-evident store. A multi-tenant system must also scope every
+query to the caller's tenant claim, which this single-tenant slice does not.
