@@ -2,12 +2,12 @@
 
   <PropertyGroup>
     <PackageType>Template</PackageType>
-    <PackageId>Keystone.CleanArchitecture.Templates</PackageId>
-    <PackageVersion>0.1.0</PackageVersion>
-    <Title>Keystone Clean Architecture Template</Title>
+    <PackageId>Keystone.WebApi.Templates</PackageId>
+    <PackageVersion>0.2.0</PackageVersion>
+    <Title>Keystone Web API Template</Title>
     <Authors>Ruel Belmonte</Authors>
-    <Description>An enterprise-grade Clean Architecture / DDD solution template: CQRS with MediatR, EF Core, domain events, the Result pattern, and architecture tests that enforce the layering. Install, then `dotnet new keystone -n MyProject`.</Description>
-    <PackageTags>dotnet-new;templates;clean-architecture;ddd;cqrs;mediatr</PackageTags>
+    <Description>An opinionated .NET 10 minimal API solution template: endpoint, service, validator and repository layers, a ServiceResult/ApiError error flow, Dapper on Postgres, JWT scope policies, Serilog, and in-memory system tests. Install, then `dotnet new keystone -n MyProject`.</Description>
+    <PackageTags>dotnet-new;templates;webapi;minimal-api;dapper;postgres</PackageTags>
 
     <TargetFramework>net10.0</TargetFramework>
     <IncludeContentInPack>true</IncludeContentInPack>

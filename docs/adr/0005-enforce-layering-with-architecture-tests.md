@@ -4,7 +4,7 @@ Date: 2026-06-16
 
 ## Status
 
-Accepted
+Superseded by [ADR 6](./0006-layered-minimal-api-without-a-mediator.md)
 
 ## Context
 

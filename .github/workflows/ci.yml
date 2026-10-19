@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, so a new NuGet advisory or SDK change fails here before it fails a user.
+  schedule:
+    - cron: "0 18 * * 0"
 
 jobs:
   build-test:
@@ -27,3 +30,9 @@ jobs:
         run: dotnet test -c Release --no-build
       - name: Pack template
         run: dotnet pack Keystone.TemplatePack.csproj -c Release -o ./artifacts
+      - name: Generate a project from the template and test it
+        run: |
+          dotnet new install ./artifacts/Keystone.WebApi.Templates.*.nupkg
+          dotnet new keystone -n Acme.Billing -o "$RUNNER_TEMP/Acme.Billing"
+          cd "$RUNNER_TEMP/Acme.Billing"
+          dotnet test

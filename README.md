@@ -1,23 +1,19 @@
 # keystone
 
-An enterprise-grade Clean Architecture / DDD starter for .NET, packaged as a
-`dotnet new` template so you scaffold a fresh, correctly-named solution in one
-command. It is opinionated on the things that are expensive to get wrong later:
-the dependency rule is enforced by tests, domain events are dispatched after the
-transaction commits, failures are typed, and every decision has an ADR.
+An opinionated .NET 10 Web API template, packaged for `dotnet new`. It is the
+shape I start new services from: every request takes the same path through
+plain, explicitly registered types, and every endpoint ships with system tests.
 
-This is not "yet another clean architecture template". The differentiators are
-operability and enforcement: architecture tests that fail the build on a layer
-violation, domain-event dispatch wired through persistence, the Result pattern
-for expected failures, ProblemDetails error handling, OpenTelemetry, and central
-package management, with the reasoning written down in `docs/adr`.
+```
+Endpoint (static handler) -> Service -> Validator -> Repository -> IDbProxy -> Postgres
+```
 
 ## Use it as a template
 
 ```bash
 # from this repo
 dotnet pack Keystone.TemplatePack.csproj -o ./artifacts
-dotnet new install ./artifacts/Keystone.CleanArchitecture.Templates.0.1.0.nupkg
+dotnet new install ./artifacts/Keystone.WebApi.Templates.0.2.0.nupkg
 
 # then, anywhere
 dotnet new keystone -n Acme.Billing
@@ -25,49 +21,105 @@ cd Acme.Billing
 dotnet test
 ```
 
-`dotnet new keystone -n Acme.Billing` produces a solution with every `Keystone`
-renamed to `Acme.Billing`, no git history to strip.
+Every `Keystone` is renamed to `Acme.Billing`, and there is no git history to
+strip. CI generates a project from the packed template and tests it on every push
+and once a week.
 
 ## What's inside
 
 ```
 content/
   src/
-    Keystone.Domain/          entities, value objects, aggregates, domain events (depends on nothing)
-    Keystone.Application/      CQRS use cases, validation + logging behaviours, interfaces
-    Keystone.Infrastructure/  EF Core, repositories, domain-event dispatch
-    Keystone.Api/             minimal API, ProblemDetails, health, OpenTelemetry
+    Keystone.Contracts/         request/response DTOs and ApiError (no dependencies)
+    Keystone.Api/
+      Common/                   ServiceResult, ApiErrors, endpoint + validation extensions,
+                                GlobalExceptionHandler, Roles policies, /version
+      Infrastructure/Data/      IDbProxy (Dapper), IDbConnectionFactory (Npgsql)
+      Customers/                the reference vertical slice
+        Endpoints/  Services/  Validators/  Repositories/
   tests/
-    Keystone.Domain.Tests/
-    Keystone.Application.Tests/
-    Keystone.Architecture.Tests/   enforces the dependency rule
+    Keystone.Api.Tests/         system tests over an in-memory host
+  db/                           schema scripts
 ```
 
-The dependency rule points inward and the Domain depends on nothing. That is not
-a convention here, it is a test (`LayeringTests`).
+`Customers` is the slice to copy. `POST /v1/customers` and
+`GET /v1/customers/{id}` go through every layer and have system tests covering
+201, 200, 400, 401, 403, 404 and 409.
 
-## Patterns
+## The rules
 
-- **DDD tactical:** `Entity<TId>`, `AggregateRoot<TId>`, `ValueObject`,
-  strongly-typed ids, domain events raised by aggregates.
-- **CQRS** with MediatR (pinned to the last free version, see ADR 0002) and a
-  validation + logging pipeline.
-- **Result pattern** for expected failures; `ValidationException` to ProblemDetails
-  for malformed input (ADR 0004).
-- **Domain events** dispatched after `SaveChanges` commits, without the Domain
-  depending on MediatR (ADR 0003).
-- **Central Package Management** and warnings-as-errors across the solution.
-- **OpenTelemetry** tracing and metrics, opt-in OTLP export.
+- **Minimal APIs only.** One `Map{Resource}Endpoints` per resource. Handlers are
+  static methods on a nested `{Resource}Handlers` class, never lambdas, so their
+  XML docs reach OpenAPI. Binding is compile-time generated.
+- **Handlers hold no logic.** They make one service call and derive the status
+  from the error: `Results.Json(result.Error, ..., statusCode: (int)result.Error.HttpStatusCode)`.
+- **Services return `ServiceResult` / `ServiceResult<T>`** and validate first.
+  Expected failures are an `ApiError` from the `ApiErrors` registry, never an
+  exception.
+- **All validation lives in FluentValidation validators.** There are three
+  patterns:
+  1. Field rules.
+  2. A `MustAsync` existence check through a repository.
+  3. Data the service already fetched, passed via `RootContextData` and read with
+     `Extract<TRequest, T>(key)`.
+- **Repositories are singletons and only run SQL through `IDbProxy`**, so tests
+  can substitute them.
+- **No MediatR, no AutoMapper, no assembly scanning.** Dependencies are
+  registered in one `RegisterDependencies` function in `Program.cs`.
+- **Central package management** with pinned versions, warnings as errors and
+  NuGet audit on.
 
-## Build and run
+## Tests
+
+`ApiWebApplicationFactory` hosts the API in memory and replaces every IO
+dependency with an NSubstitute substitute that it exposes as a property.
+`TestAuthHandler` authenticates with all scopes. Send `X-Test-Scopes` to narrow
+them, or `X-Test-Anonymous` to call without credentials.
+
+There is one test class per endpoint method (`PostCustomerTests`), and test names
+start with the handler name (`RegisterCustomer_returns_409_when_...`). Tests use
+xunit v3, AutoFixture `[InlineAutoData]` and AwesomeAssertions.
+
+## Security defaults
+
+- Every route requires an authenticated caller unless it opts out.
+- The `Readers` and `Writers` policies check the token's `scope` claim.
+- Logs carry ids, never names, emails, request bodies or query strings.
+- Every read and write of a customer is audited with the caller's `sub` and
+  `client_id`.
+- Error responses never include exception messages.
+
+These are defaults, not compliance. See [ADR 10](./docs/adr/0010-secure-defaults.md)
+for what they leave to each project.
+
+## Run it locally
 
 ```bash
+docker run -d --name keystone-db -p 5432:5432 \
+  -e POSTGRES_USER=keystone -e POSTGRES_PASSWORD=keystone -e POSTGRES_DB=keystone postgres:17
+docker exec -i keystone-db psql -U keystone -d keystone < content/db/001_create_customers.sql
+
 cd content
-dotnet test                              # all unit + architecture tests
-dotnet run --project src/Keystone.Api    # POST /customers, GET /customers/{id}, /health
+dotnet run --project src/Keystone.Api   # /version, /health, /openapi/v1.json, /v1/customers
 ```
+
+Customer endpoints need a JWT from the authority configured under
+`Authentication:Schemes:Bearer` in `appsettings.json`, carrying the
+`keystone.read` or `keystone.write` scope.
+
+## Not included yet
+
+- **A migration runner.** Schema scripts in `db/` are applied by hand.
+- **A separate audit sink.** Audit events share the operational log pipeline.
+  Route `Audit:` events to a tamper-evident store.
+- **A cache.** For read-heavy paths, add a cache-aside base class with
+  `SemaphoreSlim` stampede protection, plus a central cache-key helper.
+- **Integration tests against a real Postgres.** System tests substitute the
+  repositories, so the SQL itself is untested here. Testcontainers is the
+  natural next step.
 
 ## Decisions
 
-See [docs/adr](./docs/adr). Read those first; they are the point of a template
-you intend to reuse.
+See [docs/adr](./docs/adr). ADRs 2 to 5 record the earlier Clean Architecture /
+DDD design and are kept, marked superseded, so the reasoning for the change is
+visible.

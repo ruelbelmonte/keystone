@@ -4,7 +4,7 @@ Date: 2026-06-16
 
 ## Status
 
-Accepted
+Superseded by [ADR 7](./0007-serviceresult-and-apierror.md)
 
 ## Context
 
